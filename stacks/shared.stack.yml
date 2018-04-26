@@ -1,0 +1,64 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Shared Resources
+
+Parameters:
+  AppName:
+    Type: String
+    Description: Application name
+  Environment:
+    Type: String
+    Description: Environment
+
+Resources:
+  TasksQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: !Sub '${AppName}-${Environment}'
+
+  Table:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${AppName}-${Environment}'
+      AttributeDefinitions:
+        -
+          AttributeName: 'hash_key'
+          AttributeType: 'S'
+        -
+          AttributeName: 'sort_key'
+          AttributeType: 'S'
+      KeySchema:
+        -
+          AttributeName: 'hash_key'
+          KeyType: 'HASH'
+        -
+          AttributeName: 'sort_key'
+          KeyType: 'RANGE'
+      ProvisionedThroughput:
+        ReadCapacityUnits: '5'
+        WriteCapacityUnits: '5'
+
+  Bucket:
+    Description: S3 Bucket
+    Type: AWS::S3::Bucket
+
+Outputs:
+  TasksQueueUrl:
+    Value: !Ref 'TasksQueue'
+    Export:
+      Name: !Sub '${AWS::StackName}-TasksQueueUrl'
+  TasksQueueArn:
+    Value: !GetAtt 'TasksQueue.Arn'
+    Export:
+      Name: !Sub '${AWS::StackName}-TasksQueueArn'
+  TasksQueueName:
+    Value: !GetAtt 'TasksQueue.QueueName'
+    Export:
+      Name: !Sub '${AWS::StackName}-TasksQueueName'
+  Table:
+    Value: !Ref 'Table'
+    Export:
+      Name: !Sub '${AWS::StackName}-TableName'
+  Bucket:
+    Value: !Ref 'Bucket'
+    Export:
+      Name: !Sub '${AWS::StackName}-Bucket'

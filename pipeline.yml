@@ -1,0 +1,218 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Microservices Core Pipeline
+
+Parameters:
+  GitHubOwner:
+    Description: The name of the GitHub repository owner
+    Type: String
+  GitHubToken:
+    Type: String
+    Description: GitHub repository OAuth token
+    NoEcho: true
+  GitHubRepo:
+    Type: String
+    Description: GitHub repository name
+  GitHubBranch:
+    Type: String
+    Description: GitHub repository branch
+    Default: 'master'
+  AppName:
+    Type: String
+    Description: Application name
+  Environment:
+    Type: String
+    Description: Environment
+    Default: 'prod'
+
+  KeyPairName:
+    Description: Public/private key pairs allow you to securely connect to your NAT
+      instance after it launches. This is used only if the region does not support
+      NAT gateways.
+    Type: AWS::EC2::KeyPair::KeyName
+
+  TLD:
+    Type: String
+    Description: TLD name needed by Route53 to perform DNS (example.com)
+    Default: ''
+
+  Domain:
+    Type: String
+    Description: Domain name for your api (api.example.com)
+    Default: ''
+
+Resources:
+
+  #
+  # Bucket used by the pipelines to store artifacts.
+  #
+  PipelinesBucket:
+    Description: The artifact bucket required for inter-stage data exchange
+    Type: AWS::S3::Bucket
+
+  #
+  # IAM Role needed by the pipelines
+  #
+  CodePipelineRole:
+    Description: The role CodePipeline will assume during pipeline execution
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+            Effect: Allow
+            Principal:
+              Service:
+                - codepipeline.amazonaws.com
+            Action: sts:AssumeRole
+
+  CodePipelinePolicy:
+    Description: Policy for the CodePipeline Role
+    DependsOn: CodePipelineRole
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: !Sub '${AWS::StackName}-pipeline-policy'
+      Roles:
+        - !Ref CodePipelineRole
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - '*'
+            Resource:
+              - '*'
+
+  #
+  # IAM Role needed by cloudformation
+  #
+  CloudFormationRole:
+    Description: The role cloudformation will assume during pipeline execution
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+            Effect: Allow
+            Principal:
+              Service:
+                - cloudformation.amazonaws.com
+            Action: sts:AssumeRole
+
+  CloudFormationPolicy:
+    Description: Policy for the cloudformation execution Role
+    DependsOn: CloudFormationRole
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: !Sub '${AWS::StackName}-cloudformation-policy'
+      Roles:
+        - !Ref CloudFormationRole
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - '*'
+            Resource:
+              - '*'
+
+  #
+  # Pipelines that create/update the cloudformation stacks within the project
+  # Prod environment.
+  #
+  Pipeline:
+    Description: '${AWS::StackName} Pipeline'
+    Type: AWS::CodePipeline::Pipeline
+    DependsOn:
+      - CodePipelinePolicy
+      - CloudFormationPolicy
+    Properties:
+      RestartExecutionOnUpdate: True
+      RoleArn: !GetAtt CodePipelineRole.Arn
+      ArtifactStore:
+        Type: S3
+        Location: !Ref PipelinesBucket
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: CloneRepository
+              ActionTypeId:
+                Category: Source
+                Owner: ThirdParty
+                Version: 1
+                Provider: GitHub
+              OutputArtifacts:
+                - Name: GitSource
+              Configuration:
+                Owner: !Ref GitHubOwner
+                Branch: !Ref GitHubBranch
+                Repo: !Ref GitHubRepo
+                OAuthToken: !Ref GitHubToken
+              RunOrder: 1
+        - Name: VPC
+          Actions:
+            - Name: Stack
+              InputArtifacts:
+                - Name: GitSource
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Version: 1
+                Provider: CloudFormation
+              Configuration:
+                TemplatePath: "GitSource::stacks/vpc.stack.yml"
+                ActionMode: CREATE_UPDATE
+                Capabilities: CAPABILITY_NAMED_IAM
+                RoleArn: !GetAtt CloudFormationRole.Arn
+                StackName: !Sub "${AppName}-vpc-${Environment}"
+                ParameterOverrides: !Sub |
+                  {
+                    "KeyPairName" : "${KeyPairName}"
+                  }
+              RunOrder: 1
+        - Name: ECS
+          Actions:
+            - Name: Stack
+              InputArtifacts:
+                - Name: GitSource
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Version: 1
+                Provider: CloudFormation
+              Configuration:
+                TemplatePath: "GitSource::stacks/ecs.stack.yml"
+                ActionMode: CREATE_UPDATE
+                Capabilities: CAPABILITY_NAMED_IAM
+                RoleArn: !GetAtt CloudFormationRole.Arn
+                StackName: !Sub "${AppName}-ecs-${Environment}"
+                ParameterOverrides: !Sub |
+                  {
+                    "Environment": "${Environment}",
+                    "KeyPairName": "${KeyPairName}",
+                    "VPCStack" : "${AppName}-vpc-${Environment}",
+                    "Domain" : "${Domain}",
+                    "TLD" : "${TLD}"
+                  }
+              RunOrder: 1
+        - Name: Shared
+          Actions:
+            - Name: Stack
+              InputArtifacts:
+                - Name: GitSource
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Version: 1
+                Provider: CloudFormation
+              Configuration:
+                TemplatePath: "GitSource::stacks/shared.stack.yml"
+                ActionMode: CREATE_UPDATE
+                Capabilities: CAPABILITY_NAMED_IAM
+                RoleArn: !GetAtt CloudFormationRole.Arn
+                StackName: !Sub "${AppName}-shared-${Environment}"
+                ParameterOverrides: !Sub |
+                  {
+                    "Environment": "${Environment}",
+                    "AppName": "${AppName}"
+                  }
+              RunOrder: 1
