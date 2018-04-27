@@ -374,7 +374,7 @@ Outputs:
     Export:
       Name: !Sub '${AWS::StackName}-LoadBalancerListenerHttp'
   LoadBalancerListenerHttps:
-    Condition: UseConstomDomain
+    Condition: UseCostomDomain
     Value: !Ref 'LoadBalancerListenerHttps'
     Export:
       Name: !Sub '${AWS::StackName}-LoadBalancerListenerHttps'
