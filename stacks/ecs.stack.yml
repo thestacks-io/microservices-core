@@ -201,6 +201,7 @@ Resources:
 
   LoadBalancerListenerHttps:
     Type: AWS::ElasticLoadBalancingV2::Listener
+    Condition: UseCustomDomain
     Properties:
       LoadBalancerArn: !Ref LoadBalancer
       Port: 443
@@ -372,6 +373,7 @@ Outputs:
     Export:
       Name: !Sub '${AWS::StackName}-LoadBalancerListenerHttp'
   LoadBalancerListenerHttps:
+    Condition: UseConstomDomain
     Value: !Ref 'LoadBalancerListenerHttps'
     Export:
       Name: !Sub '${AWS::StackName}-LoadBalancerListenerHttps'
