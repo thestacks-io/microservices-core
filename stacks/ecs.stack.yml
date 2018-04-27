@@ -201,11 +201,13 @@ Resources:
 
   LoadBalancerListenerHttps:
     Type: AWS::ElasticLoadBalancingV2::Listener
+    Condition: UseCustomDomain
     Properties:
       LoadBalancerArn: !Ref LoadBalancer
       Port: 443
       Protocol: 'HTTPS'
-      Certificates: !If [UseCustomDomain, [ {CertificateArn: !Ref SSL } ], !Ref "AWS::NoValue"]
+      Certificates: 
+        - CertificateArn: !Ref SSL
       DefaultActions:
         - Type: forward
           TargetGroupArn: !Ref DefaultTargetGroup
@@ -372,6 +374,7 @@ Outputs:
     Export:
       Name: !Sub '${AWS::StackName}-LoadBalancerListenerHttp'
   LoadBalancerListenerHttps:
+    Condition: UseConstomDomain
     Value: !Ref 'LoadBalancerListenerHttps'
     Export:
       Name: !Sub '${AWS::StackName}-LoadBalancerListenerHttps'
